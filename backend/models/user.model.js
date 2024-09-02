@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema(
   {
@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema(
       required: [true, "Password is required"],
       minlength: [6, "Password must be at least 6 characters long"],
     },
-    cartItem: [
+    cartItems: [
       {
         quantity: {
           type: Number,
@@ -32,7 +32,7 @@ const userSchema = new mongoose.Schema(
       },
     ],
     role: {
-      type: String, // Adding type declaration here
+      type: String,
       enum: ["customer", "admin"],
       default: "customer",
     },
@@ -42,7 +42,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save hook to hash password before saving to the database
+// Pre-save hook to hash password before saving to database
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
 
@@ -55,10 +55,10 @@ userSchema.pre("save", async function (next) {
   }
 });
 
-userSchema.methods.matchPassword = async function (password) {
+userSchema.methods.comparePassword = async function (password) {
   return bcrypt.compare(password, this.password);
 };
 
-const User = mongoose.model("users", userSchema);
+const User = mongoose.model("User", userSchema);
 
 export default User;
