@@ -7,26 +7,25 @@ export const createCheckoutSession = async (req, res) => {
     const { products, couponCode } = req.body;
 
     if (!Array.isArray(products) || products.length === 0) {
-      return res
-        .status(400)
-        .json({ message: "Invalid or empty products array" });
+      return res.status(400).json({ error: "Invalid or empty products array" });
     }
 
-    let totalPrice = 0;
+    let totalAmount = 0;
 
     const lineItems = products.map((product) => {
-      const amount = product.price * 100; // stripe wants you to send in the format of cents
-      totalPrice += amount * product.quantity;
+      const amount = Math.round(product.price * 100); // stripe wants u to send in the format of cents
+      totalAmount += amount * product.quantity;
 
       return {
         price_data: {
-          currency: "usd", //สกุลเงิน
+          currency: "usd",
           product_data: {
             name: product.name,
-            images: [product.imageUrl],
+            images: [product.image],
           },
           unit_amount: amount,
         },
+        quantity: product.quantity || 1,
       };
     });
 
@@ -37,8 +36,10 @@ export const createCheckoutSession = async (req, res) => {
         userId: req.user._id,
         isActive: true,
       });
-      if (!coupon) {
-        totalAmount -= Math.floor((totalAmount * coupon.discount) / 100);
+      if (coupon) {
+        totalAmount -= Math.round(
+          (totalAmount * coupon.discountPercentage) / 100
+        );
       }
     }
 
@@ -73,11 +74,10 @@ export const createCheckoutSession = async (req, res) => {
     }
     res.status(200).json({ id: session.id, totalAmount: totalAmount / 100 });
   } catch (error) {
-    console.log("Error processing successful checkout", error);
-    res.status(500).json({
-      message: "Error processing successful checkout",
-      error: error.message,
-    });
+    console.error("Error processing checkout:", error);
+    res
+      .status(500)
+      .json({ message: "Error processing checkout", error: error.message });
   }
 };
 
@@ -99,38 +99,41 @@ export const checkoutSuccess = async (req, res) => {
         );
       }
 
-      //create a new Order
+      // create a new Order
       const products = JSON.parse(session.metadata.products);
       const newOrder = new Order({
         user: session.metadata.userId,
         products: products.map((product) => ({
-          product: product._id,
+          product: product.id,
           quantity: product.quantity,
           price: product.price,
         })),
-        totalAmount: session.amount_total / 100, //convert from cents to dollars
-        paymentId: sessionId,
+        totalAmount: session.amount_total / 100, // convert from cents to dollars,
+        stripeSessionId: sessionId,
       });
 
       await newOrder.save();
-      res.status(200).JSON({
+
+      res.status(200).json({
         success: true,
         message:
           "Payment successful, order created, and coupon deactivated if used.",
-        order: newOrder._id,
+        orderId: newOrder._id,
       });
     }
   } catch (error) {
-    console.log("Error processing successful checkout", error);
-    res.status(500).json({
-      message: "Error processing successful checkout",
-      error: error.message,
-    });
+    console.error("Error processing successful checkout:", error);
+    res
+      .status(500)
+      .json({
+        message: "Error processing successful checkout",
+        error: error.message,
+      });
   }
 };
 
 async function createStripeCoupon(discountPercentage) {
-  const coupon = await Stripe.coupons.create({
+  const coupon = await stripe.coupons.create({
     percent_off: discountPercentage,
     duration: "once",
   });
@@ -139,10 +142,12 @@ async function createStripeCoupon(discountPercentage) {
 }
 
 async function createNewCoupon(userId) {
+  await Coupon.findOneAndDelete({ userId });
+
   const newCoupon = new Coupon({
-    code: "GIFT" + Math.random().toString(36).substr(2, 8).toUpperCase(),
+    code: "GIFT" + Math.random().toString(36).substring(2, 8).toUpperCase(),
     discountPercentage: 10,
-    expirationDate: new Date(Data.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+    expirationDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
     userId: userId,
   });
 
